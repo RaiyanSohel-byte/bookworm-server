@@ -114,6 +114,10 @@ async function run() {
 
       res.send(user);
     });
+    app.post("/api/logout", (req, res) => {
+      res.clearCookie("token", { httpOnly: true });
+      res.send({ success: true });
+    });
 
     // Book related API routes
     app.post("/api/books", auth(["admin"]), async (req, res) => {
@@ -140,6 +144,111 @@ async function run() {
         .find({ status: "pending" })
         .toArray();
       res.send(reviews);
+    });
+
+    // admin stats API route
+    app.get("/api/admin/stats", auth(["admin"]), async (req, res) => {
+      try {
+        // Count total users
+        const usersCount = await usersCollection.countDocuments();
+
+        // Count total books
+        const booksCount = await booksCollection.countDocuments();
+
+        // Count pending reviews
+        const pendingReviewsCount = await reviewsCollection.countDocuments({
+          status: "pending",
+        });
+
+        // Aggregate books by genre
+        const genresAgg = await booksCollection
+          .aggregate([
+            { $group: { _id: "$genre", count: { $sum: 1 } } },
+            { $sort: { count: -1 } }, // optional: sort by most popular
+          ])
+          .toArray();
+
+        // Transform to array of { genre, count } objects
+        const genres = genresAgg.map((g) => ({
+          genre: g._id,
+          count: g.count,
+        }));
+
+        // Send final stats
+        res.send({
+          users: usersCount,
+          books: booksCount,
+          pendingReviews: pendingReviewsCount,
+          genres, // array ready for your pie chart
+        });
+      } catch (err) {
+        console.error("STATS ERROR:", err);
+        res.status(500).send("Failed to fetch stats");
+      }
+    });
+    // user stats API route
+    app.get("/api/user/stats", auth(), async (req, res) => {
+      try {
+        const userId = req.user.id;
+
+        const booksRead = await reviewsCollection.countDocuments({
+          userId,
+          status: "approved",
+        });
+
+        const totalBooks = await booksCollection.countDocuments();
+
+        const goal = 50;
+
+        const monthly = await reviewsCollection
+          .aggregate([
+            {
+              $match: {
+                userId,
+                status: "approved",
+              },
+            },
+            {
+              $group: {
+                _id: { $month: "$createdAt" },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { _id: 1 } },
+          ])
+          .toArray();
+
+        const genresAgg = await booksCollection
+          .aggregate([{ $group: { _id: "$genre", count: { $sum: 1 } } }])
+          .toArray();
+
+        const genres = genresAgg.map((g) => ({
+          genre: g._id,
+          count: g.count,
+        }));
+
+        res.send({
+          booksRead,
+          totalBooks,
+          goal,
+          monthly,
+          genres,
+        });
+      } catch (err) {
+        console.error("USER STATS ERROR:", err);
+        res.status(500).send("Failed to load user stats");
+      }
+    });
+    // recommendations API route
+    app.get("/api/recommendations", auth(), async (req, res) => {
+      try {
+        const books = await booksCollection.find().limit(10).toArray();
+
+        res.send(books);
+      } catch (err) {
+        console.error("RECOMMENDATION ERROR:", err);
+        res.status(500).send("Failed to fetch recommendations");
+      }
     });
 
     // Image upload
