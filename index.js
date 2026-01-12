@@ -29,6 +29,22 @@ async function run() {
     const usersCollection = db.collection("users");
     const booksCollection = db.collection("books");
 
+    // middleware
+    const auth =
+      (roles = []) =>
+      (req, res, next) => {
+        const token = req.cookies.token;
+        if (!token) return res.status(401).send("Unauthorized");
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded;
+
+        if (roles.length && !roles.includes(decoded.role)) {
+          return res.status(403).send("Forbidden");
+        }
+        next();
+      };
+
     //auth API routes
     app.post("/api/register", async (req, res) => {
       const { name, email, password, photo } = req.body;
@@ -70,7 +86,7 @@ async function run() {
     });
 
     // Book related API routes
-    app.post("/api/books", async (req, res) => {
+    app.post("/api/books", auth(["admin"]), async (req, res) => {
       await booksCollection.insertOne(req.body);
       res.send({ success: true });
     });
