@@ -4,13 +4,20 @@ const cookieParser = require("cookie-parser");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 require("dotenv").config();
 const bcrypt = require("bcrypt");
-
+const cloudinary = require("cloudinary").v2;
 const app = express();
 const port = process.env.PORT || 5000;
 // middlewares
 app.use(cors());
 app.use(express.json());
 app.use(cookieParser());
+
+// Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 // MongoDB
 const client = new MongoClient(process.env.MONGO_URI, {
