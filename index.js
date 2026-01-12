@@ -250,6 +250,24 @@ async function run() {
         res.status(500).send("Failed to fetch recommendations");
       }
     });
+    // library API route
+    app.get("/api/library", auth(), async (req, res) => {
+      try {
+        const user = await usersCollection.findOne(
+          { _id: new ObjectId(req.user.id) },
+          { projection: { shelves: 1 } }
+        );
+
+        if (!user) {
+          return res.status(404).send("User not found");
+        }
+
+        res.send(user.shelves);
+      } catch (err) {
+        console.error("LIBRARY ERROR:", err);
+        res.status(500).send("Failed to load library");
+      }
+    });
 
     // Image upload
     app.post("/api/upload", upload.single("image"), async (req, res) => {
