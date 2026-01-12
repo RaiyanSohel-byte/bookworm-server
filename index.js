@@ -28,6 +28,7 @@ async function run() {
     const db = client.db("bookwormDB");
     const usersCollection = db.collection("users");
     const booksCollection = db.collection("books");
+    const reviewsCollection = db.collection("reviews");
 
     // middleware
     const auth =
@@ -93,6 +94,17 @@ async function run() {
     app.get("/api/books", auth(), async (req, res) => {
       const books = await booksCollection.find().toArray();
       res.send(books);
+    });
+
+    // Reviews related API routes
+    app.post("/api/reviews", auth(), async (req, res) => {
+      await reviewsCollection.insertOne({
+        ...req.body,
+        userId: req.user.id,
+        status: "pending",
+        createdAt: new Date(),
+      });
+      res.send({ success: true });
     });
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
