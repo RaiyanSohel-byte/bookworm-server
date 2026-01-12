@@ -1,14 +1,26 @@
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 const bcrypt = require("bcrypt");
 const cloudinary = require("cloudinary").v2;
+const multer = require("multer");
+const jwt = require("jsonwebtoken");
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+});
 const app = express();
 const port = process.env.PORT || 5000;
 // middlewares
-app.use(cors());
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+  })
+);
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -73,7 +85,7 @@ async function run() {
       res.send({ success: true });
     });
     app.post("/api/login", async (req, res) => {
-      const user = await usersCollection("users").findOne({
+      const user = await usersCollection.findOne({
         email: req.body.email,
       });
       if (!user) return res.status(400).send("Invalid credentials");
@@ -91,6 +103,16 @@ async function run() {
         role: user.role,
         name: user.name,
       });
+    });
+    app.get("/api/me", auth(), async (req, res) => {
+      const user = await usersCollection.findOne(
+        { _id: new ObjectId(req.user.id) },
+        { projection: { password: 0 } }
+      );
+
+      if (!user) return res.status(404).send("User not found");
+
+      res.send(user);
     });
 
     // Book related API routes
@@ -119,6 +141,29 @@ async function run() {
         .toArray();
       res.send(reviews);
     });
+
+    // Image upload
+    app.post("/api/upload", upload.single("image"), async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).send("No file uploaded");
+        }
+
+        const b64 = Buffer.from(req.file.buffer).toString("base64");
+        const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
+
+        // Upload to Cloudinary
+        const result = await cloudinary.uploader.upload(dataURI, {
+          folder: "bookworm-users",
+        });
+
+        res.send({ url: result.secure_url });
+      } catch (err) {
+        console.error("UPLOAD ERROR:", err);
+        res.status(500).send("Image upload failed");
+      }
+    });
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
@@ -126,7 +171,7 @@ async function run() {
     );
   } finally {
     // Ensures that the client will close when you finish/error
-    await client.close();
+    // await client.close();
   }
 }
 run().catch(console.dir);
