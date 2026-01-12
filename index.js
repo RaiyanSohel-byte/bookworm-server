@@ -27,6 +27,7 @@ async function run() {
     await client.connect();
     const db = client.db("bookwormDB");
     const usersCollection = db.collection("users");
+    const booksCollection = db.collection("books");
 
     //auth API routes
     app.post("/api/register", async (req, res) => {
@@ -66,6 +67,12 @@ async function run() {
         role: user.role,
         name: user.name,
       });
+    });
+
+    // Book related API routes
+    app.post("/api/books", async (req, res) => {
+      await booksCollection.insertOne(req.body);
+      res.send({ success: true });
     });
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
