@@ -74,6 +74,10 @@ async function run() {
       await booksCollection.insertOne(req.body);
       res.send({ success: true });
     });
+    app.get("/api/books", auth(), async (req, res) => {
+      const books = await booksCollection.find().toArray();
+      res.send(books);
+    });
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
