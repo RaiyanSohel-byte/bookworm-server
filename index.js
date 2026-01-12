@@ -106,6 +106,12 @@ async function run() {
       });
       res.send({ success: true });
     });
+    app.get("/api/admin/reviews", auth(["admin"]), async (req, res) => {
+      const reviews = await reviewsCollection
+        .find({ status: "pending" })
+        .toArray();
+      res.send(reviews);
+    });
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
