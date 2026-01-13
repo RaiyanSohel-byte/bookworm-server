@@ -139,6 +139,62 @@ async function run() {
       res.clearCookie("token", { httpOnly: true });
       res.send({ success: true });
     });
+    // Get all users
+    app.get("/api/admin/users", auth(["admin"]), async (req, res) => {
+      try {
+        const users = await usersCollection
+          .find({}, { projection: { password: 0 } })
+          .toArray();
+        res.send(users);
+      } catch (err) {
+        console.error("FETCH USERS ERROR:", err);
+        res.status(500).send("Failed to fetch users");
+      }
+    });
+    app.put("/api/admin/promote", auth(["admin"]), async (req, res) => {
+      const { email } = req.body;
+      const result = await usersCollection.updateOne(
+        { email },
+        { $set: { role: "admin" } }
+      );
+      if (result.matchedCount === 0)
+        return res.status(404).send("User not found");
+      res.send({ success: true });
+    });
+
+    app.put("/api/admin/demote", auth(["admin"]), async (req, res) => {
+      const { email } = req.body;
+
+      if (!email) return res.status(400).send("Email is required");
+
+      try {
+        const user = await usersCollection.findOne({ email });
+        if (!user) return res.status(404).send("User not found");
+
+        if (user._id.toString() === req.user.id) {
+          return res.status(400).send("You cannot demote yourself");
+        }
+
+        if (user.role !== "admin") {
+          return res.status(400).send("User is not an admin");
+        }
+
+        await usersCollection.updateOne({ email }, { $set: { role: "user" } });
+
+        res.send({ success: true, message: `${email} demoted to user` });
+      } catch (err) {
+        console.error("DEMOTE USER ERROR:", err);
+        res.status(500).send("Failed to demote user");
+      }
+    });
+
+    app.delete("/api/admin/users/:id", auth(["admin"]), async (req, res) => {
+      const { id } = req.params;
+      const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+      if (result.deletedCount === 0)
+        return res.status(404).send("User not found");
+      res.send({ success: true });
+    });
 
     // Book related API routes
     app.post(
@@ -193,25 +249,39 @@ async function run() {
         res.status(500).send("Failed to load book");
       }
     });
+    // GET /api/books
     app.get("/api/books", auth(), async (req, res) => {
       try {
-        const { search, genre } = req.query;
+        const { search, genre, page = 1, limit = 20 } = req.query;
 
         const filter = {};
-
         if (search) {
           filter.$or = [
             { title: { $regex: search, $options: "i" } },
             { author: { $regex: search, $options: "i" } },
           ];
         }
-
         if (genre) {
           filter.genre = genre;
         }
 
-        const books = await booksCollection.find(filter).toArray();
-        res.send(books);
+        const pageNum = parseInt(page, 10);
+        const limitNum = parseInt(limit, 10);
+        const skip = (pageNum - 1) * limitNum;
+
+        const total = await booksCollection.countDocuments(filter);
+        const books = await booksCollection
+          .find(filter)
+          .skip(skip)
+          .limit(limitNum)
+          .toArray();
+
+        res.send({
+          books,
+          total,
+          page: pageNum,
+          pages: Math.ceil(total / limitNum),
+        });
       } catch (err) {
         console.error("FETCH BOOKS ERROR:", err);
         res.status(500).send("Failed to fetch books");
@@ -587,14 +657,64 @@ async function run() {
     // recommendations API route
     app.get("/api/recommendations", auth(), async (req, res) => {
       try {
-        const books = await booksCollection.find().limit(10).toArray();
+        const user = await usersCollection.findOne(
+          { _id: new ObjectId(req.user.id) },
+          { projection: { shelves: 1 } }
+        );
 
-        res.send(books);
+        const readBooks = user.shelves?.read || [];
+
+        let recommendedBooks = [];
+
+        if (readBooks.length >= 3) {
+          const genreCounts = {};
+          readBooks.forEach((b) => {
+            if (!b.genre) return;
+            genreCounts[b.genre] = (genreCounts[b.genre] || 0) + 1;
+          });
+
+          const topGenres = Object.entries(genreCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([g]) => g);
+
+          recommendedBooks = await booksCollection
+            .find({
+              genre: { $in: topGenres },
+              _id: { $nin: readBooks.map((b) => b.bookId) },
+            })
+            .sort({ avgRating: -1, shelvesCount: -1 })
+            .limit(15)
+            .toArray();
+
+          recommendedBooks = recommendedBooks.map((b) => ({
+            ...b,
+            reason: `Matches your preference for ${b.genre} and highly rated by the community.`,
+          }));
+        } else {
+          const popularBooks = await booksCollection
+            .find()
+            .sort({ avgRating: -1, shelvesCount: -1 })
+            .limit(12)
+            .toArray();
+
+          const randomBooks = await booksCollection
+            .aggregate([{ $sample: { size: 3 } }])
+            .toArray();
+
+          recommendedBooks = [...popularBooks, ...randomBooks].map((b) => ({
+            ...b,
+            reason: "Popular choice among readers.",
+          }));
+        }
+
+        res.send(recommendedBooks);
       } catch (err) {
         console.error("RECOMMENDATION ERROR:", err);
         res.status(500).send("Failed to fetch recommendations");
       }
     });
+
     // library API route
     app.get("/api/library", auth(), async (req, res) => {
       try {
