@@ -196,6 +196,53 @@ async function run() {
       const books = await booksCollection.find().toArray();
       res.send(books);
     });
+    app.put(
+      "/api/books/:id",
+      auth(["admin"]),
+      upload.single("cover"),
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+
+          const updateData = {
+            title: req.body.title,
+            author: req.body.author,
+            genre: req.body.genre,
+            description: req.body.description,
+          };
+
+          if (req.file) {
+            const b64 = Buffer.from(req.file.buffer).toString("base64");
+            const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+
+            const uploadResult = await cloudinary.uploader.upload(dataURI, {
+              folder: "bookworm-books",
+            });
+
+            updateData.cover = uploadResult.secure_url;
+          }
+
+          const result = await booksCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updateData }
+          );
+
+          if (!result.matchedCount) {
+            return res.status(404).send("Book not found");
+          }
+
+          const updatedBook = await booksCollection.findOne({
+            _id: new ObjectId(id),
+          });
+
+          res.send(updatedBook);
+        } catch (err) {
+          console.error("UPDATE BOOK ERROR:", err);
+          res.status(500).send("Failed to update book");
+        }
+      }
+    );
+
     app.delete("/api/books/:id", auth(["admin"]), async (req, res) => {
       try {
         const { id } = req.params;
@@ -488,6 +535,44 @@ async function run() {
         res.status(500).send("Failed to load library");
       }
     });
+    app.post("/api/users/shelves", auth(), async (req, res) => {
+      try {
+        const { bookId, shelf, progress, bookInfo } = req.body;
+        if (!bookId || !shelf)
+          return res.status(400).send("Book ID and shelf required");
+
+        const validShelves = ["want", "reading", "read"];
+        if (!validShelves.includes(shelf))
+          return res.status(400).send("Invalid shelf type");
+
+        let entry;
+        if (shelf === "reading") {
+          entry = {
+            bookId: new ObjectId(bookId),
+            title: bookInfo?.title,
+            cover: bookInfo?.cover,
+            pagesRead: progress?.pagesRead || 0,
+            totalPages: progress?.totalPages || 0,
+          };
+        } else {
+          entry = {
+            bookId: new ObjectId(bookId),
+            title: bookInfo?.title,
+            cover: bookInfo?.cover,
+          };
+        }
+
+        await usersCollection.updateOne(
+          { _id: new ObjectId(req.user.id) },
+          { $addToSet: { [`shelves.${shelf}`]: entry } }
+        );
+
+        res.send({ success: true });
+      } catch (err) {
+        console.error("ADD TO SHELF ERROR:", err);
+        res.status(500).send("Failed to add book to shelf");
+      }
+    });
 
     // Image upload
     app.post("/api/upload", upload.single("image"), async (req, res) => {
@@ -517,7 +602,6 @@ async function run() {
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
   } finally {
-    // Ensures that the client will close when you finish/error
     // await client.close();
   }
 }
