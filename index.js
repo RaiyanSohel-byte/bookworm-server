@@ -194,9 +194,30 @@ async function run() {
       }
     });
     app.get("/api/books", auth(), async (req, res) => {
-      const books = await booksCollection.find().toArray();
-      res.send(books);
+      try {
+        const { search, genre } = req.query;
+
+        const filter = {};
+
+        if (search) {
+          filter.$or = [
+            { title: { $regex: search, $options: "i" } },
+            { author: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        if (genre) {
+          filter.genre = genre;
+        }
+
+        const books = await booksCollection.find(filter).toArray();
+        res.send(books);
+      } catch (err) {
+        console.error("FETCH BOOKS ERROR:", err);
+        res.status(500).send("Failed to fetch books");
+      }
     });
+
     app.put(
       "/api/books/:id",
       auth(["admin"]),
@@ -245,7 +266,7 @@ async function run() {
     );
 
     // Genre related API routes
-    app.get("/api/admin/genres", auth(["admin"]), async (req, res) => {
+    app.get("/api/admin/genres", auth(), async (req, res) => {
       const genres = await genresCollection.find().toArray();
       res.send(genres);
     });
