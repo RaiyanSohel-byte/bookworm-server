@@ -48,6 +48,7 @@ async function run() {
     const usersCollection = db.collection("users");
     const booksCollection = db.collection("books");
     const reviewsCollection = db.collection("reviews");
+    const genresCollection = db.collection("genres");
 
     // middleware
     const auth =
@@ -242,6 +243,62 @@ async function run() {
         }
       }
     );
+
+    // Genre related API routes
+    app.get("/api/admin/genres", auth(["admin"]), async (req, res) => {
+      const genres = await genresCollection.find().toArray();
+      res.send(genres);
+    });
+
+    app.post("/api/admin/genres", auth(["admin"]), async (req, res) => {
+      const { name } = req.body;
+      if (!name) return res.status(400).send("Name is required");
+
+      const existing = await genresCollection.findOne({ name });
+      if (existing) return res.status(400).send("Genre already exists");
+
+      const result = await genresCollection.insertOne({ name });
+      res.send({ _id: result.insertedId, name });
+    });
+
+    app.put("/api/admin/genres/:id", auth(["admin"]), async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!name) return res.status(400).send("Name is required");
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send("Invalid Genre ID format");
+        }
+
+        const updatedGenre = await genresCollection.findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          { $set: { name } },
+          { returnDocument: "after" }
+        );
+
+        if (!updatedGenre) {
+          return res.status(404).send("Genre not found");
+        }
+
+        res.send(updatedGenre);
+      } catch (err) {
+        console.error("UPDATE GENRE ERROR:", err);
+        res.status(500).send("Internal Server Error: Failed to update genre");
+      }
+    });
+
+    app.delete("/api/admin/genres/:id", auth(["admin"]), async (req, res) => {
+      const { id } = req.params;
+      const result = await genresCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      if (result.deletedCount === 0)
+        return res.status(404).send("Genre not found");
+      res.send({ success: true });
+    });
 
     app.delete("/api/books/:id", auth(["admin"]), async (req, res) => {
       try {
