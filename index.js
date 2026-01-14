@@ -223,6 +223,7 @@ async function run() {
             description: req.body.description,
             cover: coverUrl,
             createdAt: new Date(),
+            totalPages: parseInt(req.body.totalPages, 10) || 0,
           };
 
           const result = await booksCollection.insertOne(book);
@@ -301,6 +302,7 @@ async function run() {
             author: req.body.author,
             genre: req.body.genre,
             description: req.body.description,
+            totalPages: parseInt(req.body.totalPages, 10) || 0,
           };
 
           if (req.file) {
@@ -592,10 +594,10 @@ async function run() {
     // user stats API route
     app.get("/api/user/stats", auth(), async (req, res) => {
       try {
-        const userId = req.user.id;
+        const userObjectId = new ObjectId(req.user.id);
 
         const booksRead = await reviewsCollection.countDocuments({
-          userId,
+          userId: userObjectId,
           status: "approved",
         });
 
@@ -604,7 +606,7 @@ async function run() {
 
         const monthly = await reviewsCollection
           .aggregate([
-            { $match: { userId, status: "approved" } },
+            { $match: { userId: userObjectId, status: "approved" } },
             {
               $group: {
                 _id: { $month: "$createdAt" },
@@ -617,7 +619,7 @@ async function run() {
 
         const genresAgg = await reviewsCollection
           .aggregate([
-            { $match: { userId, status: "approved" } },
+            { $match: { userId: userObjectId, status: "approved" } },
             {
               $lookup: {
                 from: "books",
@@ -743,6 +745,57 @@ async function run() {
         res.status(500).send("Failed to load library");
       }
     });
+    // Update book progress in shelves
+    app.patch("/api/users/shelves/:bookId", auth(), async (req, res) => {
+      try {
+        const { bookId } = req.params;
+        const { pagesRead, shelf } = req.body;
+
+        if (!bookId || pagesRead == null || !shelf)
+          return res.status(400).send("Missing required data");
+
+        const validShelves = ["want", "reading", "read"];
+        if (!validShelves.includes(shelf))
+          return res.status(400).send("Invalid shelf");
+
+        // Remove from all shelves first (in case user changes shelf)
+        const updateOps = {
+          $pull: {
+            "shelves.want": { bookId: new ObjectId(bookId) },
+            "shelves.reading": { bookId: new ObjectId(bookId) },
+            "shelves.read": { bookId: new ObjectId(bookId) },
+          },
+        };
+
+        await usersCollection.updateOne(
+          { _id: new ObjectId(req.user.id) },
+          updateOps
+        );
+
+        // Add back to the correct shelf with updated progress
+        let entry = { bookId: new ObjectId(bookId) };
+        if (shelf === "reading") {
+          entry.pagesRead = pagesRead;
+          const book = await booksCollection.findOne({
+            _id: new ObjectId(bookId),
+          });
+          entry.totalPages = book?.totalPages || 0; // use total pages from book
+          entry.title = book?.title;
+          entry.cover = book?.cover;
+        }
+
+        await usersCollection.updateOne(
+          { _id: new ObjectId(req.user.id) },
+          { $addToSet: { [`shelves.${shelf}`]: entry } }
+        );
+
+        res.send({ success: true });
+      } catch (err) {
+        console.error("UPDATE SHELF ERROR:", err);
+        res.status(500).send("Failed to update shelf");
+      }
+    });
+
     app.post("/api/users/shelves", auth(), async (req, res) => {
       try {
         const { bookId, shelf, progress, bookInfo } = req.body;
