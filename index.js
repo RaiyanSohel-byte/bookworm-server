@@ -663,10 +663,10 @@ async function run() {
         );
 
         const readBooks = user.shelves?.read || [];
-
         let recommendedBooks = [];
 
         if (readBooks.length >= 3) {
+          // Top genre recommendation logic
           const genreCounts = {};
           readBooks.forEach((b) => {
             if (!b.genre) return;
@@ -691,15 +691,25 @@ async function run() {
             ...b,
             reason: `Matches your preference for ${b.genre} and highly rated by the community.`,
           }));
-        } else {
+        }
+
+        // Fallback: if not enough read books or no matches
+        if (recommendedBooks.length === 0) {
           const popularBooks = await booksCollection
             .find()
             .sort({ avgRating: -1, shelvesCount: -1 })
             .limit(12)
             .toArray();
 
+          // Always use `$sample` safely even if collection is small
           const randomBooks = await booksCollection
-            .aggregate([{ $sample: { size: 3 } }])
+            .aggregate([
+              {
+                $sample: {
+                  size: Math.min(3, await booksCollection.countDocuments()),
+                },
+              },
+            ])
             .toArray();
 
           recommendedBooks = [...popularBooks, ...randomBooks].map((b) => ({
