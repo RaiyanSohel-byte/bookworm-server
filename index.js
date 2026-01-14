@@ -49,6 +49,7 @@ async function run() {
     const booksCollection = db.collection("books");
     const reviewsCollection = db.collection("reviews");
     const genresCollection = db.collection("genres");
+    const videosCollection = db.collection("videos");
 
     // middleware
     const auth =
@@ -85,6 +86,79 @@ async function run() {
           res.status(401).send("Invalid token");
         }
       };
+
+    // tutorials video API routes
+    app.get("/api/videos", auth(), async (req, res) => {
+      try {
+        const videos = await videosCollection
+          .find()
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(videos);
+      } catch (err) {
+        console.error("FETCH VIDEOS ERROR:", err);
+        res.status(500).send("Failed to fetch videos");
+      }
+    });
+
+    app.post("/api/videos", auth(["admin"]), async (req, res) => {
+      try {
+        const { title, url } = req.body;
+        if (!title || !url)
+          return res.status(400).send("Title and URL are required");
+
+        const newVideo = {
+          title,
+          url,
+          createdAt: new Date(),
+        };
+
+        const result = await videosCollection.insertOne(newVideo);
+        res.send({ ...newVideo, _id: result.insertedId });
+      } catch (err) {
+        console.error("ADD VIDEO ERROR:", err);
+        res.status(500).send("Failed to add video");
+      }
+    });
+
+    app.put("/api/videos/:id", auth(["admin"]), async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { title, url } = req.body;
+        if (!title || !url)
+          return res.status(400).send("Title and URL are required");
+
+        const result = await videosCollection.findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          { $set: { title, url } },
+          { returnDocument: "after" }
+        );
+
+        if (!result.value) return res.status(404).send("Video not found");
+
+        res.send(result.value);
+      } catch (err) {
+        console.error("UPDATE VIDEO ERROR:", err);
+        res.status(500).send("Failed to update video");
+      }
+    });
+
+    app.delete("/api/videos/:id", auth(["admin"]), async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await videosCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0)
+          return res.status(404).send("Video not found");
+
+        res.send({ success: true });
+      } catch (err) {
+        console.error("DELETE VIDEO ERROR:", err);
+        res.status(500).send("Failed to delete video");
+      }
+    });
 
     //auth API routes
     app.post("/api/register", async (req, res) => {
